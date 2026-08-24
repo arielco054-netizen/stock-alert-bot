@@ -6,10 +6,37 @@ import pandas as pd
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
+# הרשימה המלאה של כל המניות והנכסים שלך
 STOCKS_INFO = {
-    "AAPL": {"he": "אפל"},
-    "TSLA": {"he": "טסלה"},
-    "NVDA": {"he": "אנבידיה"}
+    "AAPL": {"en": "Apple Inc.", "he": "אפל"},
+    "TSLA": {"en": "Tesla Inc.", "he": "טסלה"},
+    "MSFT": {"en": "Microsoft Corporation", "he": "מיקרוסופט"},
+    "NVDA": {"en": "NVIDIA Corporation", "he": "אנבידיה"},
+    "PLTR": {"en": "Palantir Technologies Inc.", "he": "פלנטיר טכנולוגיות"},
+    "INTC": {"en": "Intel Corporation", "he": "אינטל"},
+    "PYPL": {"en": "PayPal Holdings Inc.", "he": "פייפאל"},
+    "GOOGL": {"en": "Alphabet Inc. (Google)", "he": "אלפאבית / גוגל"},
+    "AMZN": {"en": "Amazon.com Inc.", "he": "אמזון"},
+    "META": {"en": "Meta Platforms Inc.", "he": "מטא פלטפורמס"},
+    "NFLX": {"en": "Netflix Inc.", "he": "נטפליקס"},
+    "LMT": {"en": "Lockheed Martin Corporation", "he": "לוקהיד מרטין"},
+    "BA": {"en": "The Boeing Company", "he": "בואינג"},
+    "WMT": {"en": "Walmart Inc.", "he": "ולמארט"},
+    "MRNA": {"en": "Moderna Inc.", "he": "מודרנה"},
+    "MRK": {"en": "Merck & Co. Inc.", "he": "מרק"},
+    "TEVA.TA": {"en": "Teva Pharmaceutical Industries Ltd.", "he": "טבע תעשיות פרמצבטיות"},
+    "1155324.TA": {"en": "IBI SAL (4A) Kosher TA-125 IL ETF", "he": "מדד ישראלי - קרן סל IBI כשרה ת\"א 125"},
+    "MBLY": {"en": "Mobileye Global Inc.", "he": "מובילאיי"},
+    "SMCI": {"en": "Super Micro Computer Inc.", "he": "סופר מיקרו קומפיוטר"},
+    "S": {"en": "SentinelOne Inc.", "he": "סנטינל וואן"},
+    "CHKP": {"en": "Check Point Software Technologies Ltd.", "he": "צ'ק פוינט תוכנה"},
+    "COIN": {"en": "Coinbase Global Inc.", "he": "קוינבייס"},
+    "BTC-USD": {"en": "Bitcoin USD", "he": "ביטקוין"},
+    "ETH-USD": {"en": "Ethereum USD", "he": "את'ריום"},
+    "VOO": {"en": "Vanguard S&P 500 ETF", "he": "קרן סל ונגארד S&P 500"},
+    "^VIX": {"en": "CBOE Volatility Index", "he": "מדד הפחד VIX"},
+    "PROK": {"en": "ProK", "he": "פרוק"},
+    "BMR": {"en": "BMR", "he": "ב.מ.ר"}
 }
 
 def send_telegram_message(text):
@@ -17,21 +44,52 @@ def send_telegram_message(text):
     payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"}
     requests.post(url, json=payload)
 
-def test_run():
-    report = "🧪 *בדיקת מניות אחרונה:*\n\n"
+def check_alerts():
+    alert_messages = []
+
     for ticker, info in STOCKS_INFO.items():
         try:
             stock = yf.Ticker(ticker)
-            data = stock.history(period="2d")
-            if not data.empty and len(data) >= 2:
-                price = data["Close"].iloc[-1]
-                prev = data["Close"].iloc[-2]
-                change = ((price - prev) / prev) * 100
-                report += f"📊 {info['he']} ({ticker}): `{price:.2f}$` (שינוי: `{change:+.2f}%`)\n"
+            todays_data = stock.history(period="5d")
+
+            if todays_data.empty or len(todays_data) < 2:
+                continue
+
+            close_price = todays_data["Close"].iloc[-1]
+            prev_close = todays_data["Close"].iloc[-2]
+
+            # התאמה למניות תל אביב שנסחרות באגורות
+            if ".TA" in ticker:
+                close_price = close_price / 100
+                prev_close = prev_close / 100
+
+            diff = close_price - prev_close
+            change = (diff / prev_close) * 100 if prev_close > 0 else 0.0
+
+            # בדיקה האם השינוי מגיע ל-5% או יותר (למעלה או למטה)
+            if abs(change) >= 5.0:
+                if change < 0:
+                    trend_emoji = "🔴📉 ירידה חדה!"
+                else:
+                    trend_emoji = "🟢📈 זינוק חד!"
+
+                sign = "+" if change >= 0 else ""
+                currency_symbol = "₪" if ".TA" in ticker else "$"
+                
+                msg = (
+                    f"{trend_emoji}\n"
+                    f"📊 *{info['he']}* ({ticker})\n"
+                    f"🔹 שינוי: `{sign}{change:.2f}%`\n"
+                    f"💵 מחיר: `{close_price:,.2f}{currency_symbol}`\n"
+                    f"〰️〰️〰️〰️〰️〰️"
+                )
+                alert_messages.append(msg)
         except Exception as e:
-            print(f"Error: {e}")
-    
-    send_telegram_message(report)
+            print(f"Error checking {ticker}: {e}")
+
+    if alert_messages:
+        full_report = "⚠️ *התראות תנודתיות בשוק (מעל 5%)!*\n\n" + "\n".join(alert_messages)
+        send_telegram_message(full_report)
 
 if __name__ == "__main__":
-    test_run()
+    check_alerts()
