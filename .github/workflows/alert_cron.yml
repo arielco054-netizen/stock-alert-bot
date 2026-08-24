@@ -3,7 +3,7 @@ name: Stock Price Alert Bot
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 * * * 1-5'
+    - cron: '*/10 * * * 1-5'
 
 jobs:
   build:
