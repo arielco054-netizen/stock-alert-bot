@@ -25,5 +25,5 @@ jobs:
       - name: Run alert bot
         run: python alert_bot.py
         env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
