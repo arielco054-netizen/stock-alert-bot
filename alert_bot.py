@@ -44,7 +44,6 @@ def load_sent_alerts():
         try:
             with open(ALERTS_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                # ננקה אם זה יום חדש
                 today_str = datetime.now().strftime("%Y-%m-%d")
                 if data.get("date") == today_str:
                     return data.get("sent", [])
@@ -71,7 +70,6 @@ def check_volatility_alerts():
     new_alerts = []
     
     for ticker, (hebrew_name, eng_name) in TICKERS.items():
-        # אם כבר שלחנו על המניה הזו היום, נדלג עליה
         if ticker in sent_today:
             continue
             
@@ -90,7 +88,6 @@ def check_volatility_alerts():
             change = current_price - prev_close
             change_percent = (change / prev_close) * 100
             
-            # בדיקה האם השינוי הוא מעל 5% או מתחת ל--5%
             if abs(change_percent) >= 5.0:
                 is_positive = change >= 0
                 emoji_status = "🟢📈 זינוק חד!" if is_positive else "🔴📉 ירידה חדה!"
@@ -110,7 +107,6 @@ def check_volatility_alerts():
             print(f"שגיאה במניה {ticker}: {e}")
             continue
             
-    # אם יש התראות חדשות שלא נשלחו היום
     if new_alerts:
         current_time = datetime.now().strftime("%d/%m/%Y %H:%M")
         report_body = "\n".join([line for _, line in new_alerts])
@@ -118,7 +114,6 @@ def check_volatility_alerts():
         
         try:
             bot.send_message(CHAT_ID, full_message)
-            # נסמן את כל המניות האלו ככאלה שנשלחו היום
             for ticker, _ in new_alerts:
                 save_sent_alert(ticker)
         except Exception as e:
