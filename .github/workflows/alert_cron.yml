@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # חובה כדי לאפשר שמירה אוטומטית של הזיכרון לגיטהאב
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -20,10 +22,18 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyTelegramBotAPI yfinance
+          pip install pyTelegramBotAPI yfinance pytz
 
       - name: Run alert bot
         run: python alert_bot.py
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
+
+      - name: Commit and push changes if any
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+          git add sent_alerts.json
+          git commit -m "Update sent alerts memory" || exit 0
+          git push
