@@ -58,19 +58,17 @@ TICKERS = {
 }
 
 # ============================================================
-# תאריך ישראל
+# פונקציות עזר ותאריך
 # ============================================================
 
 def today_israel():
     return datetime.now(ISRAEL_TZ).strftime("%Y-%m-%d")
 
-
 def current_time_israel():
     return datetime.now(ISRAEL_TZ).strftime("%d/%m/%Y %H:%M")
 
-
 # ============================================================
-# טעינת זיכרון
+# ניהול זיכרון (טעינה ושמירה)
 # ============================================================
 
 def load_sent_alerts():
@@ -86,7 +84,7 @@ def load_sent_alerts():
         with open(ALERTS_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        # אם עבר יום חדש - מתחילים יום חדש
+        # אם עבר יום חדש - מאפס את ההתראות
         if data.get("date") != today:
             print("📅 יום חדש - מאפס את ההתראות היומיות")
             return {
@@ -103,11 +101,6 @@ def load_sent_alerts():
             "sent": {}
         }
 
-
-# ============================================================
-# שמירת זיכרון
-# ============================================================
-
 def save_sent_alerts(data):
     try:
         with open(ALERTS_FILE, "w", encoding="utf-8") as f:
@@ -117,23 +110,13 @@ def save_sent_alerts(data):
                 ensure_ascii=False,
                 indent=2
             )
-        print("💾 זיכרון ההתראות נשמר")
+        print("💾 זיכרון ההתראות נשמר בהצלחה")
     except Exception as e:
         print(f"❌ שגיאה בשמירת הזיכרון: {e}")
-
-
-# ============================================================
-# בדיקה האם כבר נשלחה התראה
-# ============================================================
 
 def already_sent(sent_data, ticker, tier):
     ticker_data = sent_data.get(ticker, [])
     return tier in ticker_data
-
-
-# ============================================================
-# סימון התראה ככזו שנשלחה
-# ============================================================
 
 def mark_sent(sent_data, ticker, tier):
     if ticker not in sent_data:
@@ -141,7 +124,6 @@ def mark_sent(sent_data, ticker, tier):
 
     if tier not in sent_data[ticker]:
         sent_data[ticker].append(tier)
-
 
 # ============================================================
 # שליפת נתוני מניה
@@ -196,31 +178,18 @@ def get_stock_data(ticker):
         print(f"❌ {ticker}: {e}")
         return None
 
-
-# ============================================================
-# פורמט מחיר
-# ============================================================
-
 def format_price(ticker, price):
     if ticker == "BTC-USD":
         return f"{price:,.2f} USD"
-
     if ticker == "^TA125.TA":
         return f"{price:,.2f} נקודות"
-
     return f"{price:,.2f}$"
 
-
 # ============================================================
-# יצירת התראה
+# יצירת הודעת התראה
 # ============================================================
 
-def create_alert(
-    ticker,
-    hebrew_name,
-    data,
-    tier
-):
+def create_alert(ticker, hebrew_name, data, tier):
     change_percent = data["change_percent"]
     change = data["change"]
 
@@ -230,36 +199,23 @@ def create_alert(
     sign_change = "+" if change > 0 else ""
 
     if is_positive:
-        if tier == "10":
-            title = "🚨🔥 זינוק קיצוני של 10%+!"
-        else:
-            title = "🚨🔥 זינוק של 5%+!"
+        title = "🚨🔥 זינוק קיצוני של 10%+, !" if tier == "10" else "🚨🔥 זינוק של 5%+!"
     else:
-        if tier == "10":
-            title = "🚨📉 נפילה חדה של 10%-!"
-        else:
-            title = "🚨📉 ירידה של 5%-!"
+        title = "🚨📉 נפילה חדה של 10%-!" if tier == "10" else "🚨📉 ירידה של 5%-!"
 
-    price = format_price(
-        ticker,
-        data["current_price"]
-    )
+    price = format_price(ticker, data["current_price"])
 
     return (
         f"{title}\n"
         f"📊 {hebrew_name} ({ticker})\n"
-        f"🔹 שינוי: "
-        f"{sign_percent}{change_percent:.2f}% "
-        f"({sign_change}{change:,.2f})\n"
+        f"🔹 שינוי: {sign_percent}{change_percent:.2f}% ({sign_change}{change:,.2f})\n"
         f"💵 מחיר: {price}\n"
-        f"🔼 גבוה: {data['high']:,.2f} | "
-        f"📉 נמוך: {data['low']:,.2f}\n"
+        f"🔼 גבוה: {data['high']:,.2f} | 📉 נמוך: {data['low']:,.2f}\n"
         f"〰️〰️〰️〰️〰️〰️"
     )
 
-
 # ============================================================
-# בדיקת כל המניות
+# פונקציית הראשית לבדיקת השוק
 # ============================================================
 
 def check_volatility_alerts():
@@ -277,7 +233,6 @@ def check_volatility_alerts():
 
         try:
             data = get_stock_data(ticker)
-
             if not data:
                 continue
 
@@ -295,16 +250,9 @@ def check_volatility_alerts():
                 if already_sent(sent_today, ticker, "10"):
                     print(f"⏭️ {ticker}: 10% כבר דווח היום")
                     continue
-
                 mark_sent(sent_today, ticker, "10")
                 mark_sent(sent_today, ticker, "5")
-
-                alert = create_alert(
-                    ticker,
-                    hebrew_name,
-                    data,
-                    "10"
-                )
+                alert = create_alert(ticker, hebrew_name, data, "10")
                 new_alerts.append(alert)
                 print(f"🚨 {ticker}: התראת 10% חדשה")
 
@@ -312,15 +260,8 @@ def check_volatility_alerts():
                 if already_sent(sent_today, ticker, "5"):
                     print(f"⏭️ {ticker}: 5% כבר דווח היום")
                     continue
-
                 mark_sent(sent_today, ticker, "5")
-
-                alert = create_alert(
-                    ticker,
-                    hebrew_name,
-                    data,
-                    "5"
-                )
+                alert = create_alert(ticker, hebrew_name, data, "5")
                 new_alerts.append(alert)
                 print(f"🚨 {ticker}: התראת 5% חדשה")
 
@@ -328,7 +269,7 @@ def check_volatility_alerts():
             print(f"❌ שגיאה ב-{ticker}: {e}")
             continue
 
-    # שמירת זיכרון
+    # שמירת הזיכרון המעודכן לקובץ
     save_sent_alerts(memory)
 
     if not new_alerts:
@@ -336,7 +277,6 @@ def check_volatility_alerts():
         return
 
     report_time = current_time_israel()
-
     message = (
         "⚠️ <b>התראות תנודתיות בשוק!</b>\n"
         f"📅 {report_time}\n\n"
@@ -355,11 +295,6 @@ def check_volatility_alerts():
     except Exception as e:
         print(f"❌ שגיאה בשליחה לטלגרם: {e}")
         raise
-
-
-# ============================================================
-# הפעלה
-# ============================================================
 
 if __name__ == "__main__":
     check_volatility_alerts()
