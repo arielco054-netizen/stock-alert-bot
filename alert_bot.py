@@ -1,14 +1,33 @@
 import os
 import json
+from datetime import datetime
+import pytz
 import telebot
 import yfinance as yf
-from datetime import datetime
 
-TOKEN = os.getenv('BOT_TOKEN')
-CHAT_ID = os.getenv('CHAT_ID')
+# ============================================================
+# הגדרות
+# ============================================================
+
+TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
+
+if not TOKEN:
+    raise ValueError("BOT_TOKEN לא מוגדר")
+
+if not CHAT_ID:
+    raise ValueError("CHAT_ID לא מוגדר")
+
 bot = telebot.TeleBot(TOKEN)
 
-ALERTS_FILE = 'sent_alerts.json'
+ISRAEL_TZ = pytz.timezone("Asia/Jerusalem")
+
+# קובץ זיכרון
+ALERTS_FILE = "sent_alerts.json"
+
+# ============================================================
+# רשימת 25 הנכסים
+# ============================================================
 
 TICKERS = {
     "AAPL": ("אפל", "Apple Inc."),
@@ -18,7 +37,7 @@ TICKERS = {
     "PLTR": ("פלנטיר טכנולוגיות", "Palantir Technologies Inc."),
     "INTC": ("אינטל", "Intel Corporation"),
     "PYPL": ("פייפאל", "PayPal Holdings Inc."),
-    "GOOGL": ("אלפאבית / גוגל", "Alphabet Inc. (Google)"),
+    "GOOGL": ("אלפאבית / גוגל", "Alphabet Inc."),
     "AMZN": ("אמזון", "Amazon.com Inc."),
     "META": ("מטא פלטפורמס", "Meta Platforms Inc."),
     "NFLX": ("נטפליקס", "Netflix Inc."),
@@ -38,113 +57,309 @@ TICKERS = {
     "^TA125.TA": ("מדד תל אביב 125", "TA-125 Index")
 }
 
-def load_sent_alerts():
-    if os.path.exists(ALERTS_FILE):
-        try:
-            with open(ALERTS_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                today_str = datetime.now().strftime("%Y-%m-%d")
-                if data.get("date") == today_str:
-                    return data.get("sent", {})
-        except:
-            pass
-    return {}
+# ============================================================
+# תאריך ישראל
+# ============================================================
 
-def save_sent_alert(ticker, tier):
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    sent_data = load_sent_alerts()
-    
+def today_israel():
+    return datetime.now(ISRAEL_TZ).strftime("%Y-%m-%d")
+
+
+def current_time_israel():
+    return datetime.now(ISRAEL_TZ).strftime("%d/%m/%Y %H:%M")
+
+
+# ============================================================
+# טעינת זיכרון
+# ============================================================
+
+def load_sent_alerts():
+    today = today_israel()
+
+    if not os.path.exists(ALERTS_FILE):
+        return {
+            "date": today,
+            "sent": {}
+        }
+
+    try:
+        with open(ALERTS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        # אם עבר יום חדש - מתחילים יום חדש
+        if data.get("date") != today:
+            print("📅 יום חדש - מאפס את ההתראות היומיות")
+            return {
+                "date": today,
+                "sent": {}
+            }
+
+        return data
+
+    except Exception as e:
+        print(f"⚠️ לא ניתן לקרוא את קובץ הזיכרון: {e}")
+        return {
+            "date": today,
+            "sent": {}
+        }
+
+
+# ============================================================
+# שמירת זיכרון
+# ============================================================
+
+def save_sent_alerts(data):
+    try:
+        with open(ALERTS_FILE, "w", encoding="utf-8") as f:
+            json.dump(
+                data,
+                f,
+                ensure_ascii=False,
+                indent=2
+            )
+        print("💾 זיכרון ההתראות נשמר")
+    except Exception as e:
+        print(f"❌ שגיאה בשמירת הזיכרון: {e}")
+
+
+# ============================================================
+# בדיקה האם כבר נשלחה התראה
+# ============================================================
+
+def already_sent(sent_data, ticker, tier):
+    ticker_data = sent_data.get(ticker, [])
+    return tier in ticker_data
+
+
+# ============================================================
+# סימון התראה ככזו שנשלחה
+# ============================================================
+
+def mark_sent(sent_data, ticker, tier):
     if ticker not in sent_data:
         sent_data[ticker] = []
-    
+
     if tier not in sent_data[ticker]:
         sent_data[ticker].append(tier)
-        
+
+
+# ============================================================
+# שליפת נתוני מניה
+# ============================================================
+
+def get_stock_data(ticker):
     try:
-        with open(ALERTS_FILE, 'w', encoding='utf-8') as f:
-            json.dump({"date": today_str, "sent": sent_data}, f, ensure_ascii=False, indent=4)
+        stock = yf.Ticker(ticker)
+
+        history = stock.history(
+            period="5d",
+            interval="1d",
+            auto_adjust=False,
+            timeout=10
+        )
+
+        if history is None or history.empty:
+            print(f"⚠️ {ticker}: אין נתונים")
+            return None
+
+        history = history.dropna(subset=["Close"])
+
+        if len(history) < 2:
+            print(f"⚠️ {ticker}: אין מספיק נתונים")
+            return None
+
+        current = history.iloc[-1]
+        previous = history.iloc[-2]
+
+        current_price = float(current["Close"])
+        previous_close = float(previous["Close"])
+
+        high_price = float(current["High"])
+        low_price = float(current["Low"])
+
+        if previous_close == 0:
+            return None
+
+        change = current_price - previous_close
+        change_percent = (change / previous_close) * 100
+
+        return {
+            "current_price": current_price,
+            "previous_close": previous_close,
+            "change": change,
+            "change_percent": change_percent,
+            "high": high_price,
+            "low": low_price
+        }
+
     except Exception as e:
-        print(f"שגיאה בשמירת קובץ הזיכרון: {e}")
+        print(f"❌ {ticker}: {e}")
+        return None
+
+
+# ============================================================
+# פורמט מחיר
+# ============================================================
+
+def format_price(ticker, price):
+    if ticker == "BTC-USD":
+        return f"{price:,.2f} USD"
+
+    if ticker == "^TA125.TA":
+        return f"{price:,.2f} נקודות"
+
+    return f"{price:,.2f}$"
+
+
+# ============================================================
+# יצירת התראה
+# ============================================================
+
+def create_alert(
+    ticker,
+    hebrew_name,
+    data,
+    tier
+):
+    change_percent = data["change_percent"]
+    change = data["change"]
+
+    is_positive = change > 0
+
+    sign_percent = "+" if change_percent > 0 else ""
+    sign_change = "+" if change > 0 else ""
+
+    if is_positive:
+        if tier == "10":
+            title = "🚨🔥 זינוק קיצוני של 10%+!"
+        else:
+            title = "🚨🔥 זינוק של 5%+!"
+    else:
+        if tier == "10":
+            title = "🚨📉 נפילה חדה של 10%-!"
+        else:
+            title = "🚨📉 ירידה של 5%-!"
+
+    price = format_price(
+        ticker,
+        data["current_price"]
+    )
+
+    return (
+        f"{title}\n"
+        f"📊 {hebrew_name} ({ticker})\n"
+        f"🔹 שינוי: "
+        f"{sign_percent}{change_percent:.2f}% "
+        f"({sign_change}{change:,.2f})\n"
+        f"💵 מחיר: {price}\n"
+        f"🔼 גבוה: {data['high']:,.2f} | "
+        f"📉 נמוך: {data['low']:,.2f}\n"
+        f"〰️〰️〰️〰️〰️〰️"
+    )
+
+
+# ============================================================
+# בדיקת כל המניות
+# ============================================================
 
 def check_volatility_alerts():
-    if not CHAT_ID:
-        return
-        
-    sent_today = load_sent_alerts()
-    new_alerts = []
-    
-    for ticker, (hebrew_name, eng_name) in TICKERS.items():
-        try:
-            stock = yf.Ticker(ticker)
-            history = stock.history(period="5d" if "BTC" in ticker else "2d")
-            
-            if len(history) < 2:
-                continue
-                
-            prev_close = history['Close'].iloc[-2]
-            current_price = history['Close'].iloc[-1]
-            high_price = history['High'].iloc[-1]
-            low_price = history['Low'].iloc[-1]
-            
-            change = current_price - prev_close
-            change_percent = (change / prev_close) * 100
-            
-            abs_change = abs(change_percent)
-            
-            current_tier = None
-            if abs_change >= 10.0:
-                current_tier = "10"
-            elif abs_change >= 5.0:
-                current_tier = "5"
-                
-            if current_tier:
-                already_sent_tiers = sent_today.get(ticker, [])
-                
-                should_send = False
-                tier_to_save = None
-                
-                if current_tier == "10":
-                    if "10" not in already_sent_tiers:
-                        should_send = True
-                        tier_to_save = "10"
-                elif current_tier == "5":
-                    if "5" not in already_sent_tiers and "10" not in already_sent_tiers:
-                        should_send = True
-                        tier_to_save = "5"
-                
-                if should_send and tier_to_save:
-                    is_positive = change >= 0
-                    tier_text = "10%+" if tier_to_save == "10" else "5%+"
-                    emoji_status = f"🚨🔥 זינוק קיצוני של {tier_text}!" if is_positive else f"🚨📉 נפילה חדה של {tier_text}!"
-                    sign = "+" if is_positive else ""
-                    price_suffix = "$" if "BTC" not in ticker and "TA125" not in ticker else (" USD" if "BTC" in ticker else " נקודות")
-                    
-                    line = (
-                        f"{emoji_status}\n"
-                        f"📊 {hebrew_name} ({ticker})\n"
-                        f"🔹 שינוי: {sign}{change_percent:.2f}% ({sign}{change:,.2f})\n"
-                        f"💵 מחיר: {current_price:,.2f}{price_suffix}\n"
-                        f"🔼 גבוה: {high_price:,.2f} | 📉 נמוך: {low_price:,.2f}\n"
-                        f"〰️〰️〰️〰️〰️〰️"
-                    )
-                    new_alerts.append((ticker, tier_to_save, line))
-        except Exception as e:
-            print(f"שגיאה במניה {ticker}: {e}")
-            continue
-            
-    if new_alerts:
-        current_time = datetime.now().strftime("%d/%m/%Y %H:%M")
-        report_body = "\n".join([line for _, _, line in new_alerts])
-        full_message = f"⚠️ התראות תנודתיות בשוק!\n📅 {current_time}\n\n{report_body}"
-        
-        try:
-            bot.send_message(CHAT_ID, full_message)
-            for ticker, tier, _ in new_alerts:
-                save_sent_alert(ticker, tier)
-                if tier == "10":
-                    save_sent_alert(ticker, "5")
-        except Exception as e:
-            print(f"שגיאה בשליחת הודעה לטלגרם: {e}")
+    print("========================================")
+    print("🚀 מתחיל בדיקת התראות")
+    print(f"🇮🇱 שעה בישראל: {current_time_israel()}")
+    print("========================================")
 
-if __name__ == '__main__':
+    memory = load_sent_alerts()
+    sent_today = memory.setdefault("sent", {})
+    new_alerts = []
+
+    for ticker, names in TICKERS.items():
+        hebrew_name, english_name = names
+
+        try:
+            data = get_stock_data(ticker)
+
+            if not data:
+                continue
+
+            change_percent = data["change_percent"]
+            absolute_change = abs(change_percent)
+
+            if absolute_change >= 10:
+                tier = "10"
+            elif absolute_change >= 5:
+                tier = "5"
+            else:
+                continue
+
+            if tier == "10":
+                if already_sent(sent_today, ticker, "10"):
+                    print(f"⏭️ {ticker}: 10% כבר דווח היום")
+                    continue
+
+                mark_sent(sent_today, ticker, "10")
+                mark_sent(sent_today, ticker, "5")
+
+                alert = create_alert(
+                    ticker,
+                    hebrew_name,
+                    data,
+                    "10"
+                )
+                new_alerts.append(alert)
+                print(f"🚨 {ticker}: התראת 10% חדשה")
+
+            elif tier == "5":
+                if already_sent(sent_today, ticker, "5"):
+                    print(f"⏭️ {ticker}: 5% כבר דווח היום")
+                    continue
+
+                mark_sent(sent_today, ticker, "5")
+
+                alert = create_alert(
+                    ticker,
+                    hebrew_name,
+                    data,
+                    "5"
+                )
+                new_alerts.append(alert)
+                print(f"🚨 {ticker}: התראת 5% חדשה")
+
+        except Exception as e:
+            print(f"❌ שגיאה ב-{ticker}: {e}")
+            continue
+
+    # שמירת זיכרון
+    save_sent_alerts(memory)
+
+    if not new_alerts:
+        print("✅ אין התראות חדשות")
+        return
+
+    report_time = current_time_israel()
+
+    message = (
+        "⚠️ <b>התראות תנודתיות בשוק!</b>\n"
+        f"📅 {report_time}\n\n"
+        + "\n".join(new_alerts)
+    )
+
+    try:
+        bot.send_message(
+            CHAT_ID,
+            message,
+            parse_mode="HTML",
+            disable_web_page_preview=True
+        )
+        print(f"📨 נשלחה הודעה עם {len(new_alerts)} התראות")
+
+    except Exception as e:
+        print(f"❌ שגיאה בשליחה לטלגרם: {e}")
+        raise
+
+
+# ============================================================
+# הפעלה
+# ============================================================
+
+if __name__ == "__main__":
     check_volatility_alerts()
